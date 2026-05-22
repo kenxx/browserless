@@ -1,8 +1,10 @@
 name: Publish Semantic Version Docker Images to GitHub Container Registry
 
+# on:
+#   push:
+#     tags: [v2.*]
 on:
-  push:
-    tags: [v2.*]
+  workflow_dispatch:
 
 jobs:
   push_to_registry:
