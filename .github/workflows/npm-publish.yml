@@ -12,6 +12,8 @@ name: Publish to npm
 #   push:
 #     tags:
 #       - 'v*.*.*'
+on:
+  workflow_dispatch:
 
 # Serialize publishes per-tag — two rapid pushes to the same ref would otherwise
 # race two `npm publish` jobs, with the loser failing 403 (already published).

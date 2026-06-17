@@ -10,6 +10,8 @@ name: PR Title
 # on:
 #   pull_request:
 #     types: [opened, edited, synchronize, reopened]
+on:
+  workflow_dispatch:
 
 permissions:
   pull-requests: read

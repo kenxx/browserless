@@ -26,6 +26,8 @@ name: Release Please
 #     workflows: ['Publish Latest Docker Images to GitHub Container Registry']
 #     types: [completed]
 #     branches: [main]
+on:
+  workflow_dispatch:
 
 # Serialize runs so the push- and workflow_run-triggered runs can't push to the
 # Release PR branch concurrently. Don't cancel an in-flight release-please run.
