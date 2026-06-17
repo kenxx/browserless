@@ -47,16 +47,16 @@ COPY --from=builder $APP_DIR/extensions ./extensions
 
 RUN chown -R blessuser:blessuser $APP_DIR
 
-RUN os="$(uname -s | tr '[:upper:]' '[:lower:]')" && \
-    version="$(cat "$CLOAKBROWSER_CACHE_DIR/latest_version_linux-arm64" 2>/dev/null || ls -1d "$CLOAKBROWSER_CACHE_DIR"/chromium-* | sed 's|.*/chromium-||' | sort -V | tail -n1)" && \
+RUN version="$(ls -1d "$CLOAKBROWSER_CACHE_DIR"/chromium-* | sed 's|.*/chromium-||' | sort -V | tail -n1)" && \
     revision="$(node -p 'require("/usr/src/app/node_modules/playwright-core/browsers.json").browsers.find(b=>b.name==="chromium").revision')" && \
+    browser_platform="$(node -p '`${require("node:os").platform()}${require("node:os").arch() === "x64" ? "64" : ""}`')" && \
     # to fake headless shell
     ln -sfn chrome "$CLOAKBROWSER_CACHE_DIR/chromium-$version/headless_shell" && \
     mkdir -p "$PLAYWRIGHT_BROWSERS_PATH/chromium-$revision" "$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-$revision" && \
     # link to cloakbrowser's chromium so that playwright can find it. 
     # This is needed since cloakbrowser's chromium is patched and won't be compatible with the revision-based path that playwright expects
-    ln -sfn "$CLOAKBROWSER_CACHE_DIR/chromium-$version" "$PLAYWRIGHT_BROWSERS_PATH/chromium-$revision/chrome-$os" && \
-    ln -sfn "$CLOAKBROWSER_CACHE_DIR/chromium-$version" "$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-$revision/chrome-$os"
+    ln -sfn "$CLOAKBROWSER_CACHE_DIR/chromium-$version" "$PLAYWRIGHT_BROWSERS_PATH/chromium-$revision/chrome-$browser_platform" && \
+    ln -sfn "$CLOAKBROWSER_CACHE_DIR/chromium-$version" "$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-$revision/chrome-$browser_platform"
 
 USER blessuser
 
