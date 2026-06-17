@@ -8,10 +8,10 @@ name: Publish to npm
 # Release PR before it is merged, and they require Docker/browser images that a
 # bare runner does not have. This job only builds and publishes the SDK package.
 
-on:
-  push:
-    tags:
-      - 'v*.*.*'
+# on:
+#   push:
+#     tags:
+#       - 'v*.*.*'
 
 # Serialize publishes per-tag — two rapid pushes to the same ref would otherwise
 # race two `npm publish` jobs, with the loser failing 403 (already published).

@@ -7,9 +7,9 @@ name: PR Title
 # Lives in its own workflow (not pr-checks.yml) so it can run on `edited` to
 # re-check when a title is fixed, without re-running the heavy Docker tests.
 
-on:
-  pull_request:
-    types: [opened, edited, synchronize, reopened]
+# on:
+#   pull_request:
+#     types: [opened, edited, synchronize, reopened]
 
 permissions:
   pull-requests: read

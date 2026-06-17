@@ -1,0 +1,132 @@
+name: Publish Chromium Cloakbrowser Docker Image to GitHub Container Registry
+
+# Reusable publish pipeline shared by docker-publish-chromium-cloakbrowser-latest.yml
+# and docker-publish-chromium-cloakbrowser-stable.yml.
+#
+# Instead of one runner building every image sequentially for both platforms
+# via QEMU emulation, this fans the work out across NATIVE runners:
+#
+#   images-build (matrix: platform)  build chromium-cloakbrowser per-arch
+#                                    on its native runner, push by digest
+#   images-merge                     stitch the per-arch digests into
+#                                    ghcr.io/kenxx/chromium-cloakbrowser:<tag>
+#
+# A multi-arch tag is an OCI image index (manifest list) pointing at one image
+# manifest per platform by digest. `docker buildx imagetools create` builds that
+# index from the per-arch digests -- it pulls/builds nothing, it only writes the
+# index -- so the published tags are identical to today's, just built natively.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: >-
+          Tag to publish the image under (e.g. "latest" or "v2.50.1"). Also
+          used as the VERSION build-arg, i.e. which ghcr.io/browserless/base
+          tag the chromium cloakbrowser image builds FROM.
+        required: true
+        type: string
+
+env:
+  IMAGE: ghcr.io/kenxx/chromium-cloakbrowser
+
+jobs:
+  # ============================================================
+  # Stage 1: build the chromium cloakbrowser image on each native
+  # runner and push by digest.
+  # ============================================================
+  images-build:
+    name: Build chromium-cloakbrowser (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {
+              platform: linux/amd64,
+              runner: ubuntu-24.04,
+              pair: linux-amd64,
+            }
+          - {
+              platform: linux/arm64,
+              runner: ubuntu-24.04-arm,
+              pair: linux-arm64,
+            }
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push chromium-cloakbrowser by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./docker/chromium-cloakbrowser/Dockerfile
+          platforms: ${{ matrix.platform }}
+          # VERSION selects which browserless base tag to build FROM.
+          build-args: |
+            VERSION=${{ inputs.tag }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${RUNNER_TEMP}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digest-chromium-cloakbrowser__${{ matrix.pair }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ============================================================
+  # Stage 2: merge the chromium cloakbrowser per-arch digests into
+  # its published manifest list.
+  # ============================================================
+  images-merge:
+    name: Merge chromium-cloakbrowser manifest
+    runs-on: ubuntu-24.04
+    needs: images-build
+    # TAG is passed via env rather than interpolated into run: scripts to avoid
+    # template/shell injection from the caller-supplied tag.
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download chromium-cloakbrowser digests
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-chromium-cloakbrowser__*
+          merge-multiple: true
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push chromium-cloakbrowser manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          # shellcheck disable=SC2046  # intentional word-splitting: one arg per digest
+          docker buildx imagetools create -t "${IMAGE}:${TAG}" \
+            $(printf "${IMAGE}@sha256:%s " *)
+
+      - name: Inspect chromium-cloakbrowser manifest
+        run: docker buildx imagetools inspect "${IMAGE}:${TAG}"

@@ -19,13 +19,13 @@ name: Release Please
 #     multi:latest finishes building, re-run and re-insert so the block converges
 #     to the versions that will actually ship — no extra push needed.
 
-on:
-  push:
-    branches: [main]
-  workflow_run:
-    workflows: ['Publish Latest Docker Images to GitHub Container Registry']
-    types: [completed]
-    branches: [main]
+# on:
+#   push:
+#     branches: [main]
+#   workflow_run:
+#     workflows: ['Publish Latest Docker Images to GitHub Container Registry']
+#     types: [completed]
+#     branches: [main]
 
 # Serialize runs so the push- and workflow_run-triggered runs can't push to the
 # Release PR branch concurrently. Don't cancel an in-flight release-please run.
