@@ -28,7 +28,7 @@ import {
 } from '@browserless.io/browserless';
 import { EventEmitter } from 'events';
 
-import EnjoiResolver from './shared/utils/enjoi-resolver.js';
+import { compileSchema } from './shared/utils/schema-validator.js';
 
 export interface HTTPServerOptions {
   concurrent: number;
@@ -61,7 +61,11 @@ export class HTTPServer extends EventEmitter {
     );
   }
 
-  protected handleErrorRequest(e: Error, res: Response | stream.Duplex, req?: Request) {
+  protected handleErrorRequest(
+    e: Error,
+    res: Response | stream.Duplex,
+    req?: Request,
+  ) {
     const contentType = req?.headers['content-type'] as contentTypes;
 
     if (e instanceof BadRequest) {
@@ -86,7 +90,9 @@ export class HTTPServer extends EventEmitter {
 
     this.logger.error(`Error handling request: ${e}\n${e.stack}`);
 
-    return writeResponse(res, 500, e.toString());
+    // Full details are logged above — don't echo internals (paths, stack
+    // fragments, library errors) back to the client.
+    return writeResponse(res, 500, 'Internal Server Error');
   }
 
   protected onHTTPUnauthorized(_req: Request, res: Response) {
@@ -167,12 +173,24 @@ export class HTTPServer extends EventEmitter {
     request: http.IncomingMessage,
     res: http.ServerResponse,
   ) {
+    const req = request as Request;
+    // Any throw out of this method is an unhandled rejection on the
+    // 'request' listener, which kills the whole process — catch and map
+    // to an error response instead.
+    try {
+      await this.handleRequestUnsafe(req, res);
+    } catch (e: unknown) {
+      this.handleErrorRequest(e as Error, res, req);
+    }
+  }
+
+  protected async handleRequestUnsafe(req: Request, res: http.ServerResponse) {
+    const request = req as http.IncomingMessage;
     request.url = moveTokenToHeader(request);
     this.logger.trace(
       `Handling inbound HTTP request on "${request.method}: ${request.url || ''}"`,
     );
 
-    const req = request as Request;
     const proceed = await this.hooks.before({ req, res });
     req.parsed = convertPathToURL(request.url || '', this.config);
     shimLegacyRequests(req.parsed);
@@ -224,7 +242,11 @@ export class HTTPServer extends EventEmitter {
       this.logger.warn(
         `No matching HTTP route handler for "${req.method}: ${req.parsed.href}"`,
       );
-      writeResponse(res, 404, 'Not Found: Please verify the endpoint URL, the HTTP method (e.g., POST, GET), and check that your Content-Type header is supported (e.g., application/json). See: https://docs.browserless.io/rest-apis/intro');
+      writeResponse(
+        res,
+        404,
+        'Not Found: Please verify the endpoint URL, the HTTP method (e.g., POST, GET), and check that your Content-Type header is supported (e.g., application/json). See: https://docs.browserless.io/rest-apis/intro',
+      );
       return Promise.resolve();
     }
 
@@ -267,10 +289,8 @@ export class HTTPServer extends EventEmitter {
     if (route.querySchema) {
       this.logger.trace(`Validating route query-params with QUERY schema`);
       try {
-        const schema = EnjoiResolver.schema(route.querySchema);
-        const valid = schema.validate(req.queryParams, {
-          abortEarly: false,
-        });
+        const schema = compileSchema(route.querySchema);
+        const valid = schema.validate(req.queryParams);
 
         if (valid.error) {
           const errorDetails = valid.error.details
@@ -297,6 +317,7 @@ export class HTTPServer extends EventEmitter {
           );
           return Promise.resolve();
         }
+        req.queryParams = valid.value as typeof req.queryParams;
       } catch (e) {
         this.logger.error(`Error parsing body schema`, e);
         writeResponse(
@@ -312,8 +333,8 @@ export class HTTPServer extends EventEmitter {
     if (route.bodySchema) {
       this.logger.trace(`Validating route payload with BODY schema`);
       try {
-        const schema = EnjoiResolver.schema(route.bodySchema);
-        const valid = schema.validate(body, { abortEarly: false });
+        const schema = compileSchema(route.bodySchema);
+        const valid = schema.validate(body);
 
         if (valid.error) {
           const errorDetails = valid.error.details
@@ -328,9 +349,7 @@ export class HTTPServer extends EventEmitter {
             )
             .join('\n');
 
-          this.logger.warn(
-            `HTTP body validation failed:${errorDetails}`,
-          );
+          this.logger.warn(`HTTP body validation failed:${errorDetails}`);
 
           writeResponse(
             res,
@@ -340,6 +359,8 @@ export class HTTPServer extends EventEmitter {
           );
           return Promise.resolve();
         }
+        body = valid.value;
+        req.body = valid.value;
       } catch (e) {
         this.logger.error(`Error parsing body schema`, e);
         writeResponse(
@@ -365,13 +386,35 @@ export class HTTPServer extends EventEmitter {
     socket: stream.Duplex,
     head: Buffer,
   ) {
+    const req = request as Request;
+
+    // A client resetting the connection mid-handshake emits 'error' on the
+    // raw socket; with no listener that's an uncaught exception that kills
+    // the process.
+    socket.on('error', (err) => {
+      this.logger.error(`WebSocket socket error: ${err.message}`);
+    });
+
+    // Same rationale as handleRequest: a throw here is an unhandled
+    // rejection on the 'upgrade' listener and crashes the process.
+    try {
+      await this.handleWebSocketUnsafe(req, socket, head);
+    } catch (e: unknown) {
+      this.handleErrorRequest(e as Error, socket, req);
+    }
+  }
+
+  protected async handleWebSocketUnsafe(
+    req: Request,
+    socket: stream.Duplex,
+    head: Buffer,
+  ) {
+    const request = req as http.IncomingMessage;
     request.url = moveTokenToHeader(request);
 
     this.logger.trace(
       `Handling inbound WebSocket request on "${request.url || ''}"`,
     );
-
-    const req = request as Request;
     const proceed = await this.hooks.before({ head, req, socket });
     req.parsed = convertPathToURL(request.url || '', this.config);
     shimLegacyRequests(req.parsed);
@@ -405,10 +448,8 @@ export class HTTPServer extends EventEmitter {
       if (route.querySchema) {
         this.logger.trace(`Validating route query-params with QUERY schema`);
         try {
-          const schema = EnjoiResolver.schema(route.querySchema);
-          const valid = schema.validate(req.queryParams, {
-            abortEarly: false,
-          });
+          const schema = compileSchema(route.querySchema);
+          const valid = schema.validate(req.queryParams);
 
           if (valid.error) {
             const errorDetails = valid.error.details
@@ -435,6 +476,7 @@ export class HTTPServer extends EventEmitter {
             );
             return Promise.resolve();
           }
+          req.queryParams = valid.value as typeof req.queryParams;
         } catch (e) {
           this.logger.error(`Error parsing query-params schema`, e);
           writeResponse(
@@ -475,7 +517,10 @@ export class HTTPServer extends EventEmitter {
   }
 
   /**
-   * Left blank for downstream SDK modules to optionally implement.
+   * Triggers a graceful shutdown of the HTTP server. Downstream SDK modules
+   * may override this to implement additional cleanup on shutdown.
    */
-  public stop() { }
+  public stop(): void {
+    void this.shutdown();
+  }
 }

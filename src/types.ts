@@ -42,6 +42,12 @@ export interface AfterResponse {
   start: number;
   status: 'successful' | 'error' | 'timedout';
   error?: Error;
+  /**
+   * The route that handled the request, when one matched — so `after()`
+   * consumers can identify which route ran without re-matching the request
+   * against the router. Omitted when no route ran (e.g. an unmatched 404).
+   */
+  route?: Route;
 }
 
 export interface BrowserHook {
@@ -92,7 +98,7 @@ type defaultLaunchOptions =
   | BrowserlessLaunch
   | ((req: Request) => CDPLaunchOptions | BrowserlessLaunch);
 
-abstract class Route {
+export abstract class Route {
   constructor(
     protected _browserManager: Browserless['browserManager'],
     protected _config: Browserless['config'],
@@ -141,6 +147,15 @@ abstract class Route {
    * concurrency limit defined in your configuration.
    */
   concurrency: boolean = true;
+
+  /**
+   * Optional per-request predicate. When it returns true, the limiter skips
+   * both the CPU/memory health-check rejection and the queue-capacity
+   * rejection for this request. Timeouts, metrics, and after-hooks still
+   * apply. Useful for lightweight requests (e.g. reconnects to an in-flight
+   * browser) that should not be turned away by host load or admission caps.
+   */
+  bypassLimits?: (req: Request) => boolean;
 
   /**
    * Description of the route and what it does. This description
@@ -381,6 +396,11 @@ export interface CDPLaunchOptions extends BrowserlessLaunch {
   timeout?: number;
   userDataDir?: string;
   waitForInitialPage?: boolean;
+  // `launch` is a passthrough to puppeteer.launch(): the parsed object is
+  // spread straight to the launcher, which ignores keys it doesn't recognize.
+  // Forward launcher options outside this documented subset rather than
+  // rejecting the connection.
+  [key: string]: unknown;
 }
 
 export interface BrowserLauncherOptions {
@@ -405,6 +425,11 @@ export interface BrowserServerOptions {
   };
   timeout?: number;
   tracesDir?: string;
+  // `launch` is a passthrough to playwright.launchServer(): the parsed object
+  // is spread straight to the launcher, which ignores keys it doesn't
+  // recognize. Forward launcher options outside this documented subset rather
+  // than rejecting the connection.
+  [key: string]: unknown;
 }
 
 export interface BrowserlessSession {

@@ -6,8 +6,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG TZ=America/Los_Angeles
 ARG BLESS_USER_ID=999
 ARG APP_DIR=/usr/src/app
-ARG NODE_VERSION=v24.15.0
-ARG NPM_VERSION=11.14.0
+ARG NODE_VERSION=v24.16.0
+ARG NPM_VERSION=11.16.0
 
 ENV NODE_VERSION=$NODE_VERSION
 ENV NVM_DIR=/usr/src/.nvm
@@ -57,6 +57,7 @@ RUN apt-get update \
   gnupg \
   libu2f-udev \
   ssh \
+  unzip \
   wget \
   xvfb \
   libwebp-dev \
@@ -76,12 +77,13 @@ RUN apt-get update \
   fonts-ubuntu \
   fonts-wqy-zenhei \
   fonts-open-sans \
+  ttf-mscorefonts-installer \
   && update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1 \
   && update-alternatives --install /usr/bin/python python /usr/bin/python3 1 \
   && fc-cache -f -v \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/fonts/truetype/noto
 
-RUN curl -sL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &&\
+RUN curl -sL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash &&\
   . $NVM_DIR/nvm.sh &&\
   nvm install $NODE_VERSION &&\
   npm install -g npm@$NPM_VERSION
@@ -103,3 +105,5 @@ COPY scripts scripts
 COPY static static
 
 COPY CHANGELOG.md LICENSE NOTICE.txt README.md tsconfig.json ./
+
+EXPOSE $PORT

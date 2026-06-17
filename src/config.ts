@@ -260,6 +260,19 @@ export class Config extends EventEmitter {
   public getAllowFileProtocol(): boolean {
     return this.allowFileProtocol;
   }
+  /**
+   * Returns URL prefixes that the browser is not allowed to navigate to.
+   * Used by both the CDP page-event guard and the Playwright wire-frame
+   * filter to block navigations whose target URL begins with any of the
+   * returned strings. Subclasses may override to add more schemes or
+   * specific hostnames (e.g. RFC1918 ranges).
+   *
+   * Default behavior tracks `ALLOW_FILE_PROTOCOL`: when disallowed, returns
+   * `['file://']`; otherwise `[]`.
+   */
+  public getBlockedURLPatterns(): string[] {
+    return this.allowFileProtocol ? [] : ['file://'];
+  }
   public getCPULimit(): number {
     return this.maxCpu;
   }
@@ -395,7 +408,9 @@ export class Config extends EventEmitter {
     this.installedBinaries.set(browserType, binaries);
   }
 
-  public getInstalledBinaries(browserType: string): Array<[number, string, string]> {
+  public getInstalledBinaries(
+    browserType: string,
+  ): Array<[number, string, string]> {
     return this.installedBinaries.get(browserType) ?? [];
   }
 
